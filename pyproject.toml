@@ -1,6 +1,32 @@
 [build-system]
 requires = ["setuptools>=64.0.0", "wheel", "versioneer"]
 build-backend = "setuptools.build_meta"
+[project]
+name = "magic-wormhole"
+requires-python = ">=3.10"
+dynamic = [
+    "version",
+    "description",
+    "readme",
+    "authors",
+    "license",
+    "urls",
+    "classifiers",
+    "dependencies",
+    "optional-dependencies",
+    "scripts",
+]
+[dependency-groups]
+dev = [
+    "tox",
+    "pyflakes",
+    "magic-wormhole-transit-relay",
+    "magic-wormhole-mailbox-server",
+    "pytest",
+    "pytest_twisted",
+    "hypothesis",
+    "noiseprotocol",
+]
 [tool.versioneer]
 VCS = "git"
 style = "pep440"
@@ -10,6 +36,7 @@ tag_prefix = ""
 parentdir_prefix = "magic-wormhole-"
 [tool.pytest.ini_options]
 addopts = "-W ignore::DeprecationWarning -r w -v"
+pythonpath = ["src"]
 testpaths = [
     "src/wormhole/test",
 ]

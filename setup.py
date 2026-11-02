@@ -59,7 +59,7 @@ setup(name="magic-wormhole",
           "tqdm >= 4.13.0", # 4.13.0 fixes crash on NetBSD
           "click",
           "humanize",
-          "txtorcon >= 18.0.2", # 18.0.2 fixes py3.4 support
+          "txtorcon @ https://github.com/erincerys/txtorcon/releases/download/erincerys-socks5-ipv6-1/txtorcon-26.6.0-py3-none-any.whl",
           "zipstream-ng >= 1.7.1, <2.0.0",
           "iterable-io >= 1.0.0, <2.0.0",
           "qrcode >= 8.0",
