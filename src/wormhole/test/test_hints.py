@@ -38,7 +38,7 @@ def test_endpoint_from_hint_obj():
 
 
 @pytest.mark.parametrize("hint, endpoint", [
-    (DirectTCPV1Hint("192.168.1.2", 1234, 0), mock.sentinel.private),
+    (DirectTCPV1Hint("10.0.0.2", 1234, 0), mock.sentinel.private),
     (DirectTCPV1Hint("2001:db8::1", 1234, 0), mock.sentinel.ipv6),
     (DirectTCPV1Hint("127.0.0.1", 1234, 0), mock.sentinel.loopback),
     (DirectTCPV1Hint("host", 1234, 0), mock.sentinel.hostname),

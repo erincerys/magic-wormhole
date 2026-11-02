@@ -1485,7 +1485,7 @@ async def test_proxy_relay_hints_kept():
 
 @pytest.mark.parametrize("hostname, endpoint", [
     ("direct", mock.sentinel.direct),
-    ("192.168.1.2", mock.sentinel.private),
+    ("10.0.0.2", mock.sentinel.private),
     ("2001:db8::1", mock.sentinel.ipv6),
 ])
 @pytest.mark.parametrize("use_tor", [False, True])
