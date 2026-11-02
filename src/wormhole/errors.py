@@ -81,6 +81,10 @@ class NoTorError(WormholeError):
     """--tor was requested, but 'txtorcon' is not installed."""
 
 
+class UnsupportedProxyError(WormholeError):
+    pass
+
+
 class NoKeyError(WormholeError):
     """w.derive_key() was called before got_verifier() fired"""
 

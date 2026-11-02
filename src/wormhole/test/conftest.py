@@ -11,6 +11,12 @@ from .common import setup_mailbox, setup_transit_relay
 import gc
 
 
+@pytest.fixture(autouse=True)
+def clear_proxy_environment(monkeypatch):
+    for name in ("ALL_PROXY", "all_proxy", "NO_PROXY", "no_proxy"):
+        monkeypatch.delenv(name, raising=False)
+
+
 @pytest.fixture(scope="session")
 def reactor():
     from twisted.internet import reactor

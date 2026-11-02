@@ -158,6 +158,10 @@ class ITorManager(Interface):
     pass
 
 
+class ISocksProxy(Interface):
+    pass
+
+
 class IWordlist(Interface):
     def choose_words(length):
         """Randomly select LENGTH words, join them with hyphens, return the
