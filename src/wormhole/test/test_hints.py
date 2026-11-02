@@ -36,6 +36,7 @@ def test_endpoint_from_hint_obj():
 
     assert efho(UnknownHint("foo"), tor) is None
 
+
 @pytest.mark.parametrize("hint, endpoint", [
     (DirectTCPV1Hint("192.168.1.2", 1234, 0), mock.sentinel.private),
     (DirectTCPV1Hint("2001:db8::1", 1234, 0), mock.sentinel.ipv6),
@@ -53,6 +54,19 @@ def test_endpoint_from_hint_obj_proxy(hint, endpoint, use_tor):
     proxy.stream_via.assert_called_once_with(hint.hostname, hint.port)
     if tor is not None:
         tor.stream_via.assert_not_called()
+
+
+def test_falsey_proxy_is_used_and_described():
+    proxy = mock.MagicMock()
+    proxy.__bool__.return_value = False
+    hint = DirectTCPV1Hint("host", 1234, 0)
+    tor = mock.Mock()
+
+    assert endpoint_from_hint_obj(
+        hint, tor, reactor, proxy=proxy) is proxy.stream_via.return_value
+    proxy.stream_via.assert_called_once_with("host", 1234)
+    tor.stream_via.assert_not_called()
+    assert describe_hint_obj(hint, False, tor, proxy=proxy) == "proxy->tcp:host:1234"
 
 
 def test_endpoint_from_hint_obj_proxy_unknown():

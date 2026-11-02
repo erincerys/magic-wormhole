@@ -82,6 +82,7 @@ def accept(cfg, reactor=reactor):
 @inlineCallbacks
 def invite(cfg, reactor=reactor):
     proxy = _resolve_cli_proxy(reactor, cfg)
+
     def on_code_created(code):
         print("Now tell the other user to run:")
         print()

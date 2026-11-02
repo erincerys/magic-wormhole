@@ -60,7 +60,8 @@ def create_config():
     *[({"socks_host": host}, {},
        "--socks-host takes a bare hostname or IP address, without credentials, "
        "a scheme, a path or brackets.")
-      for host in ["user@h", "socks5://h", "h/path", "[::1]", "h]", "a b", "h\t"]],
+      for host in ["user@h", "socks5://h", "h/path", "[::1]", "h]", "a b", "h\t",
+                   "host:1080", "127.0.0.1:1080", "h\u200b", "h\x00"]],
     ({"socks_port": 1080}, {}, "--socks-port requires --socks-host."),
     ({}, {"ALL_PROXY": "http://proxy.example:1080"},
      "Unsupported proxy scheme 'http'; unset ALL_PROXY/all_proxy "
@@ -107,6 +108,16 @@ async def test_proxy_refused_before_connecting(command, options, environ, messag
         else:
             resolve.assert_called_once_with(
                 reactor, cfg.socks_host, cfg.socks_port, os.environ, cfg.stderr)
+
+
+@pytest.mark.parametrize("host", ["::1", "2001:db8::1"])
+def test_proxy_bare_ipv6_host_accepted(host):
+    cfg = create_config()
+    cfg.socks_host = host
+    with mock.patch.dict(os.environ, {}, clear=True):
+        proxy = cli._resolve_cli_proxy(reactor, cfg)
+    assert proxy.host == host
+    assert proxy.port == 1080
 
 
 @pytest.mark.parametrize("command", ["send", "receive"])

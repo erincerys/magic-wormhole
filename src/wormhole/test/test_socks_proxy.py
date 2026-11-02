@@ -32,7 +32,7 @@ def test_parse_proxy_url(url, expected):
     ("socks5://@proxy.example", "credentials"),
     ("http://proxy.example", "http"),
     ("socks4://proxy.example", "socks4"),
-    ("proxy.example:1080", "scheme"),
+    ("proxy.example:1080", "must start with socks5:// or socks5h://"),
     ("socks5://proxy.example/path", "path"),
     ("socks5://proxy.example?query=value", "query"),
     ("socks5://proxy.example#fragment", "fragment"),
@@ -60,6 +60,23 @@ def test_parse_proxy_url_refuses_unsupported_configuration(url, reason):
     assert "alice" not in message
     assert "secret-password" not in message
     assert isinstance(exc.value, WormholeError)
+
+
+def test_parse_proxy_url_without_scheme_never_echoes_credentials():
+    with pytest.raises(UnsupportedProxyError) as exc:
+        parse_proxy_url("alice:secret@host:1080")
+    message = str(exc.value)
+    assert message == "Proxy URL must start with socks5:// or socks5h://."
+    assert "alice" not in message
+    assert "secret" not in message
+
+
+def test_parse_proxy_url_preserves_unsupported_scheme_message():
+    with pytest.raises(UnsupportedProxyError) as exc:
+        parse_proxy_url("http://proxy.example.com")
+    assert str(exc.value) == (
+        "Unsupported proxy scheme 'http'; unset ALL_PROXY/all_proxy "
+        "or use --socks-host/--socks-port instead.")
 
 
 @pytest.mark.parametrize("url", [

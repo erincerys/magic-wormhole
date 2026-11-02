@@ -36,6 +36,9 @@ def parse_proxy_url(url):
     except ValueError:
         raise UnsupportedProxyError("Proxy URL has an invalid host.") from None
 
+    if "://" not in url:
+        raise UnsupportedProxyError(
+            "Proxy URL must start with socks5:// or socks5h://.")
     if parsed.scheme not in ("socks5", "socks5h"):
         raise UnsupportedProxyError(
             f"Unsupported proxy scheme {parsed.scheme!r}; unset ALL_PROXY/all_proxy "

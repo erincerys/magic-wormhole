@@ -25,7 +25,7 @@ RelayV1Hint = namedtuple("RelayV1Hint", ["hints"])
 
 
 def describe_hint_obj(hint, relay, tor, proxy=None):
-    prefix = "proxy->" if proxy else "tor->" if tor else "->"
+    prefix = "proxy->" if proxy is not None else "tor->" if tor else "->"
     if relay:
         prefix = prefix + "relay:"
     if isinstance(hint, DirectTCPV1Hint):
@@ -90,7 +90,7 @@ def parse_hint_argv(hint, stderr=sys.stderr):
 
 
 def endpoint_from_hint_obj(hint, tor, reactor, proxy=None):
-    if proxy:
+    if proxy is not None:
         if isinstance(hint, (DirectTCPV1Hint, TorTCPV1Hint)):
             return proxy.stream_via(hint.hostname, hint.port)
         return None

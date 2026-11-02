@@ -1,3 +1,4 @@
+import ipaddress
 import os
 import time
 start = time.time()
@@ -273,10 +274,17 @@ def _resolve_cli_proxy(reactor, cfg):
     if host is not None:
         if not host.strip():
             raise UnsupportedProxyError("--socks-host must not be empty.")
-        if any(c in "@/[]" or c.isspace() for c in host):
+        if any(c in "@/[]" or c.isspace() for c in host) or not host.isprintable():
             raise UnsupportedProxyError(
                 "--socks-host takes a bare hostname or IP address, without credentials, "
                 "a scheme, a path or brackets.")
+        if ":" in host:
+            try:
+                ipaddress.IPv6Address(host)
+            except ValueError:
+                raise UnsupportedProxyError(
+                    "--socks-host takes a bare hostname or IP address, without credentials, "
+                    "a scheme, a path or brackets.") from None
     proxy = resolve_proxy(reactor, cfg.socks_host, cfg.socks_port, os.environ, cfg.stderr)
     _check_tor_proxy(proxy, cfg.tor, cfg.launch_tor, cfg.tor_control_port,
                      cfg.socks_host, cfg.socks_port)

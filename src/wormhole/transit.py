@@ -587,7 +587,7 @@ class Common:
         self._timing.add("transit")
 
     def _build_listener(self):
-        if self._no_listen or self._tor or self._proxy:
+        if self._no_listen or self._tor or self._proxy is not None:
             return ([], None)
         portnum = allocate_tcp_port()
         addresses = ipaddrs.find_addresses()
