@@ -36,6 +36,58 @@ def test_endpoint_from_hint_obj():
 
     assert efho(UnknownHint("foo"), tor) is None
 
+@pytest.mark.parametrize("hint, endpoint", [
+    (DirectTCPV1Hint("192.168.1.2", 1234, 0), mock.sentinel.private),
+    (DirectTCPV1Hint("2001:db8::1", 1234, 0), mock.sentinel.ipv6),
+    (DirectTCPV1Hint("127.0.0.1", 1234, 0), mock.sentinel.loopback),
+    (DirectTCPV1Hint("host", 1234, 0), mock.sentinel.hostname),
+    (TorTCPV1Hint("host.onion", 1234, 0), mock.sentinel.onion),
+])
+@pytest.mark.parametrize("use_tor", [False, True])
+def test_endpoint_from_hint_obj_proxy(hint, endpoint, use_tor):
+    proxy = mock.Mock()
+    proxy.stream_via.return_value = endpoint
+    tor = mock.Mock() if use_tor else None
+
+    assert endpoint_from_hint_obj(hint, tor, reactor, proxy=proxy) is endpoint
+    proxy.stream_via.assert_called_once_with(hint.hostname, hint.port)
+    if tor is not None:
+        tor.stream_via.assert_not_called()
+
+
+def test_endpoint_from_hint_obj_proxy_unknown():
+    proxy = mock.Mock()
+    tor = mock.Mock()
+    assert endpoint_from_hint_obj(
+        UnknownHint("foo"), tor, reactor, proxy=proxy) is None
+    proxy.stream_via.assert_not_called()
+    tor.stream_via.assert_not_called()
+
+
+def test_endpoint_from_hint_obj_proxy_error():
+    proxy = mock.Mock()
+    proxy.stream_via.side_effect = ValueError("proxy rejected destination")
+    tor = mock.Mock()
+    with pytest.raises(ValueError, match="proxy rejected destination"):
+        endpoint_from_hint_obj(
+            DirectTCPV1Hint("host", 1234, 0), tor, reactor, proxy=proxy)
+    proxy.stream_via.assert_called_once_with("host", 1234)
+    tor.stream_via.assert_not_called()
+
+
+@pytest.mark.parametrize("hint, description", [
+    (DirectTCPV1Hint("host", 1234, 0), "tcp:host:1234"),
+    (TorTCPV1Hint("host.onion", 1234, 0), "tor:host.onion:1234"),
+    (UnknownHint("stuff"), str(UnknownHint("stuff"))),
+])
+@pytest.mark.parametrize("relay", [False, True])
+@pytest.mark.parametrize("tor", [False, True])
+def test_describe_hint_obj_proxy(hint, description, relay, tor):
+    prefix = "proxy->relay:" if relay else "proxy->"
+    assert describe_hint_obj(
+        hint, relay, tor, proxy=mock.Mock()) == prefix + description
+
+
 def test_comparable():
     h1 = DirectTCPV1Hint("hostname", "port1", 0.0)
     h1b = DirectTCPV1Hint("hostname", "port1", 0.0)

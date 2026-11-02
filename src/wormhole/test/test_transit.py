@@ -1454,7 +1454,88 @@ async def test_success_direct_tor_relay():
     assert fc._descriptions == ["tor->relay:tcp:relay:1234"]
 
 
-def _endpoint_from_hint_obj(hint, _tor, _reactor):
+@ensureDeferred
+async def test_proxy_listener_and_own_hints():
+    clock = task.Clock()
+    proxy = mock.Mock()
+    s = transit.TransitSender("", reactor=clock, proxy=proxy)
+    with mock.patch("wormhole.transit.allocate_tcp_port") as allocate_port, \
+            mock.patch("wormhole.ipaddrs.find_addresses") as find_addresses:
+        assert s._build_listener() == ([], None)
+        assert await s.get_connection_hints() == []
+    allocate_port.assert_not_called()
+    find_addresses.assert_not_called()
+    proxy.stream_via.assert_not_called()
+
+
+@ensureDeferred
+async def test_proxy_relay_hints_kept():
+    s = transit.TransitSender(
+        "tcp:host:1234", reactor=task.Clock(), proxy=mock.Mock())
+    assert await s.get_connection_hints() == [{
+        "type": "relay-v1",
+        "hints": [{
+            "type": "direct-tcp-v1",
+            "hostname": "host",
+            "port": 1234,
+            "priority": 0.0,
+        }],
+    }]
+
+
+@pytest.mark.parametrize("hostname, endpoint", [
+    ("direct", mock.sentinel.direct),
+    ("192.168.1.2", mock.sentinel.private),
+    ("2001:db8::1", mock.sentinel.ipv6),
+])
+@pytest.mark.parametrize("use_tor", [False, True])
+@ensureDeferred
+async def test_success_direct_proxy(hostname, endpoint, use_tor):
+    clock = task.Clock()
+    proxy = mock.Mock()
+    proxy.stream_via.return_value = endpoint
+    tor = mock.Mock() if use_tor else None
+    fc = FakeConnector()
+    s = transit.TransitSender("", reactor=clock, proxy=proxy, tor=tor)
+    s.set_transit_key(b"key")
+    assert await s.get_connection_hints() == []
+    s.add_connection_hints([dict(DIRECT_HINT_JSON, hostname=hostname)])
+    s._start_connector = fc._start_connector
+
+    d = s.connect()
+    assert not d.called
+    assert fc._connectors == [endpoint]
+    proxy.stream_via.assert_called_once_with(hostname, 1234)
+    assert fc._descriptions == [f"proxy->tcp:{hostname}:1234"]
+    if tor is not None:
+        tor.stream_via.assert_not_called()
+    fc._waiters[0].callback("winner")
+    assert await d == "winner"
+
+
+@ensureDeferred
+async def test_success_proxy_relay():
+    clock = task.Clock()
+    proxy = mock.Mock()
+    proxy.stream_via.return_value = mock.sentinel.relay
+    fc = FakeConnector()
+    s = transit.TransitSender("", reactor=clock, proxy=proxy)
+    s.set_transit_key(b"key")
+    assert await s.get_connection_hints() == []
+    s.add_connection_hints([RELAY_HINT_JSON])
+    s._start_connector = fc._start_connector
+
+    d = s.connect()
+    clock.advance(1.0)
+    assert not d.called
+    assert fc._connectors == [mock.sentinel.relay]
+    proxy.stream_via.assert_called_once_with("relay", 1234)
+    assert fc._descriptions == ["proxy->relay:tcp:relay:1234"]
+    fc._waiters[0].callback("winner")
+    assert await d == "winner"
+
+
+def _endpoint_from_hint_obj(hint, _tor, _reactor, proxy=None):
     if isinstance(hint, DirectTCPV1Hint):
         if hint.hostname == "unavailable":
             return None

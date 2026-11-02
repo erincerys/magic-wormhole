@@ -559,7 +559,8 @@ class Common:
                  no_listen=False,
                  tor=None,
                  reactor=None,
-                 timing=None):
+                 timing=None,
+                 proxy=None):
         self._side = bytes_to_hexstr(os.urandom(8))  # unicode
         if transit_relay:
             if not isinstance(transit_relay, str):
@@ -573,6 +574,7 @@ class Common:
         self._their_direct_hints = []  # hintobjs
         self._our_relay_hints = set(self._transit_relays)
         self._tor = tor
+        self._proxy = proxy
         self._transit_key = None
         self._no_listen = no_listen
         self._waiting_for_transit_key = []
@@ -585,7 +587,7 @@ class Common:
         self._timing.add("transit")
 
     def _build_listener(self):
-        if self._no_listen or self._tor:
+        if self._no_listen or self._tor or self._proxy:
             return ([], None)
         portnum = allocate_tcp_port()
         addresses = ipaddrs.find_addresses()
@@ -788,11 +790,13 @@ class Common:
             # Check the hint type to see if we can support it (e.g. skip
             # onion hints on a non-Tor client). Do not increase relay_delay
             # unless we have at least one viable hint.
-            ep = endpoint_from_hint_obj(hint_obj, self._tor, self._reactor)
+            ep = endpoint_from_hint_obj(hint_obj, self._tor, self._reactor,
+                                        proxy=self._proxy)
             if not ep:
                 continue
             d = self._start_connector(ep,
-                                      describe_hint_obj(hint_obj, False, self._tor))
+                                      describe_hint_obj(hint_obj, False, self._tor,
+                                                        proxy=self._proxy))
             contenders.append(d)
             relay_delay = self.RELAY_DELAY
 
@@ -813,7 +817,8 @@ class Common:
 
         for priority in sorted(prioritized_relays, reverse=True):
             for hint_obj in prioritized_relays[priority]:
-                ep = endpoint_from_hint_obj(hint_obj, self._tor, self._reactor)
+                ep = endpoint_from_hint_obj(hint_obj, self._tor, self._reactor,
+                                            proxy=self._proxy)
                 if not ep:
                     continue
                 d = task.deferLater(
@@ -821,7 +826,8 @@ class Common:
                     relay_delay,
                     self._start_connector,
                     ep,
-                    describe_hint_obj(hint_obj, True, self._tor),
+                    describe_hint_obj(hint_obj, True, self._tor,
+                                      proxy=self._proxy),
                     is_relay=True)
                 contenders.append(d)
             relay_delay += self.RELAY_DELAY

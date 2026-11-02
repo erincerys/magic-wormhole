@@ -24,8 +24,8 @@ TorTCPV1Hint = namedtuple("TorTCPV1Hint", ["hostname", "port", "priority"])
 RelayV1Hint = namedtuple("RelayV1Hint", ["hints"])
 
 
-def describe_hint_obj(hint, relay, tor):
-    prefix = "tor->" if tor else "->"
+def describe_hint_obj(hint, relay, tor, proxy=None):
+    prefix = "proxy->" if proxy else "tor->" if tor else "->"
     if relay:
         prefix = prefix + "relay:"
     if isinstance(hint, DirectTCPV1Hint):
@@ -89,7 +89,11 @@ def parse_hint_argv(hint, stderr=sys.stderr):
     return DirectTCPV1Hint(hint_host, hint_port, priority)
 
 
-def endpoint_from_hint_obj(hint, tor, reactor):
+def endpoint_from_hint_obj(hint, tor, reactor, proxy=None):
+    if proxy:
+        if isinstance(hint, (DirectTCPV1Hint, TorTCPV1Hint)):
+            return proxy.stream_via(hint.hostname, hint.port)
+        return None
     if tor:
         if isinstance(hint, (DirectTCPV1Hint, TorTCPV1Hint)):
             # this Tor object will throw ValueError for non-public IPv4
