@@ -1,0 +1,83 @@
+# Maintainer: erin
+
+pkgname=magic-wormhole-socks5-git
+_pkgname=magic-wormhole
+pkgver=0.24.0.r2414.g958f933
+pkgrel=1
+pkgdesc="Securely transfer data between computers, fork that can route every connection through a SOCKS5 proxy"
+arch=('any')
+url="https://github.com/erincerys/magic-wormhole"
+license=('MIT')
+depends=(
+  'python'
+  'python-attrs'
+  'python-autobahn'
+  'python-automat'
+  'python-click'
+  'python-cryptography'
+  'python-humanize'
+  'python-idna'
+  'python-iterable-io'
+  'python-pynacl'
+  'python-pyopenssl'
+  'python-qrcode'
+  'python-service-identity'
+  'python-spake2'
+  'python-tqdm'
+  'python-twisted'
+  'python-txtorcon-socks5'
+  'python-zipstream-ng'
+)
+makedepends=(
+  'git'
+  'python-build'
+  'python-installer'
+  'python-setuptools'
+  'python-versioneer'
+  'python-wheel'
+)
+checkdepends=(
+  'python-hypothesis'
+  'python-magic-wormhole-mailbox-server'
+  'python-magic-wormhole-transit-relay'
+  'python-noiseprotocol'
+  'python-pytest'
+  'python-pytest-twisted'
+)
+optdepends=('python-noiseprotocol: dilation API')
+provides=("${_pkgname}=${pkgver%%.r*}")
+conflicts=("${_pkgname}")
+source=("${_pkgname}::git+${url}.git#branch=develop")
+sha256sums=('SKIP')
+
+pkgver() {
+  cd "${_pkgname}"
+  printf '0.24.0.r%s.g%s' "$(git rev-list --count HEAD)" "$(git rev-parse --short=7 HEAD)"
+}
+
+build() {
+  cd "${_pkgname}"
+  # The fork carries no release tags; versioneer derives the wheel version from
+  # a local tag at HEAD, spelled as a PEP 440 post release of pkgver.
+  local _pyver="${pkgver%.g*}"
+  git tag -f "${_pyver/.r/.post}+g${pkgver##*.g}" >/dev/null
+  rm -rf build dist
+  python -m build --wheel --no-isolation --skip-dependency-check
+}
+
+check() {
+  cd "${_pkgname}"
+  local _site
+  _site=$(python -c 'import sysconfig; print(sysconfig.get_path("purelib"))')
+  rm -rf test-install
+  python -m installer --destdir=test-install dist/*.whl
+  PATH="${PWD}/test-install/usr/bin:${PATH}" PYTHONPATH="${PWD}/test-install${_site}" \
+    python -m pytest -p no:cacheprovider src/wormhole/test
+}
+
+package() {
+  cd "${_pkgname}"
+  python -m installer --destdir="${pkgdir}" dist/*.whl
+  install -Dm644 docs/wormhole.1 "${pkgdir}/usr/share/man/man1/wormhole.1"
+  install -Dm644 LICENSE "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+}

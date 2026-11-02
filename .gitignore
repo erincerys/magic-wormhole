@@ -9,6 +9,7 @@ __pycache__/
 .Python
 env/
 build/
+pkg/
 develop-eggs/
 dist/
 downloads/
@@ -23,6 +24,11 @@ var/
 *.egg
 MANIFEST
 .eggs
+packaging/arch/*/src
+packaging/arch/magic-wormhole-socks5-git/magic-wormhole
+packaging/arch/python-txtorcon-socks5-git/txtorcon
+*.pkg.tar.zst
+*.whl
 
 # Installer logs
 pip-log.txt

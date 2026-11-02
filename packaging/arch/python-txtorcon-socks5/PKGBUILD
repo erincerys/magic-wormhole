@@ -1,0 +1,36 @@
+# Maintainer: erin
+
+pkgname=python-txtorcon-socks5
+_pkgname=txtorcon
+_release=erincerys-socks5-ipv6-1
+pkgver=26.6.0
+pkgrel=1
+pkgdesc="Twisted-based Tor controller client, fork that sends IPv6 SOCKS5 CONNECT targets whole"
+arch=('any')
+url="https://github.com/erincerys/txtorcon"
+license=('MIT')
+depends=(
+  'python'
+  'python-automat'
+  'python-cryptography'
+  'python-idna'
+  'python-pyopenssl'
+  'python-service-identity'
+  'python-twisted'
+  'python-zope-interface'
+)
+makedepends=('python-installer')
+provides=("python-txtorcon=${pkgver}")
+conflicts=('python-txtorcon')
+source=("${url}/releases/download/${_release}/${_pkgname}-${pkgver}-py3-none-any.whl")
+noextract=("${_pkgname}-${pkgver}-py3-none-any.whl")
+sha256sums=('f4c905f3d718e547ee0c57c2714d96f5b39a6da20a04935432a2292eff001ec8')
+
+package() {
+  python -m installer --destdir="${pkgdir}" "${_pkgname}-${pkgver}-py3-none-any.whl"
+  local _site
+  _site=$(python -c 'import sysconfig; print(sysconfig.get_path("purelib"))')
+  install -d "${pkgdir}/usr/share/licenses/${pkgname}"
+  ln -s "${_site}/${_pkgname}-${pkgver}.dist-info/licenses/LICENSE" \
+    "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+}
