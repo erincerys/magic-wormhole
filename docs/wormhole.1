@@ -19,6 +19,15 @@ rendezvous relay to use
 \fB\-\-transit\-helper\fR tcp:HOST:PORT
 transit relay to use
 .TP
+\fB\-\-socks\-host\fR HOST
+Use a SOCKS5 proxy for every connection; HOST is a bare hostname or IP address.
+Option of the send, receive, ssh invite and ssh accept subcommands, given after
+the subcommand. Overrides ALL_PROXY.
+.TP
+\fB\-\-socks\-port\fR PORT
+SOCKS5 proxy port, from 1 to 65535 (default: 1080); requires \-\-socks\-host.
+Option of the send, receive, ssh invite and ssh accept subcommands.
+.TP
 \fB\-\-dump\-timing\fR FILE.json
 (debug) write timing data to file
 .TP

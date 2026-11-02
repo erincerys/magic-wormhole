@@ -24,6 +24,7 @@ Most options have what we consider good defaults, and several can be controlled 
 - ``WORMHOLE_TRANSIT_HELPER``: same as ``--transit-helper`` to configure the Transit relay
 - ``WORMHOLE_ACCEPT_FILE``: same as ``--accept-file`` to avoid "y / n " prompts
 - ``WORMHOLE_QR``: same as ``--qr`` or ``--no-qr``, e.g. ``export WORMHOLE_QR=0`` turns off the QR code.
+- ``ALL_PROXY``: use a SOCKS5 proxy for every connection, for example ``socks5h://127.0.0.1:1080``. The lowercase ``all_proxy`` is also read; ``ALL_PROXY`` takes precedence. Empty values count as unset. See :doc:`socks-proxy`.
 
 
 Aliases
@@ -50,6 +51,15 @@ Some more explanation of selected global options:
 
 Network Location Privacy
 ~~~~~~~~~~~~~~~~~~~~~~~~
+
+Use ``--socks-host HOST`` and optionally ``--socks-port PORT`` with
+``wormhole send``, ``wormhole receive``, ``wormhole ssh invite`` or
+``wormhole ssh accept`` to send every connection through a SOCKS5 proxy.
+The default port is 1080. These options override ``ALL_PROXY``; without
+them, the variable still applies. Wormhole shares no local IP addresses
+and never falls back to a direct connection. SOCKS proxy settings cannot
+be combined with the Tor options below. See :doc:`socks-proxy` for examples
+and limitations.
 
 For users interested in *Tor for location privacy*, there are several options in both ``wormhole send`` and ``wormhole receive``:
 

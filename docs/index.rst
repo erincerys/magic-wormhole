@@ -14,6 +14,7 @@ Magic-Wormhole: Get Things From One Computer To Another, Safely
    using-the-cli
    ecosystem
    tor
+   socks-proxy
 
    introduction
    api

@@ -3,6 +3,7 @@ User-visible changes in "magic-wormhole":
 ## Upcoming Release
 
 * (add release-notes here when making PRs)
+* Send every connection through a SOCKS5 proxy with ``ALL_PROXY`` or ``--socks-host`` and ``--socks-port`` on ``send``, ``receive``, ``ssh invite`` and ``ssh accept``, without sharing local IP addresses or falling back to direct connections.
 * Export the status API's union types (``ConnectionStatus``, ``PeerSharedKey``, ``CodeStatus``, ``PeerConnection``) and their member classes from ``wormhole`` (#608, #641)
 * Fix a crash in ``wormhole send --text`` when the peer sends a ``transit`` message (#742)
 * **INCOMPATIBLE**: the method ``get_unverified_key()`` has been removed from the object returned by ``wormhole.create()``.
