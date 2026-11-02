@@ -3,11 +3,17 @@ import sys
 
 from unittest import mock
 
+import pytest
+from click.testing import CliRunner
+
+from ..cli import cli
 from ..cli.public_relay import RENDEZVOUS_RELAY, TRANSIT_RELAY
 from .common import config
 
 def test_send_baseline():
     cfg = config("send", "--text", "hi")
+    assert cfg.socks_host is None
+    assert cfg.socks_port is None
     assert cfg.what is None
     assert cfg.code is None
     assert cfg.code_length == 2
@@ -82,6 +88,39 @@ def test_send_relay_env_var():
         cfg = config("--relay-url", relay_url_2, "send")
     assert cfg.relay_url == relay_url_2
 
+@pytest.mark.parametrize("command", ["send", "receive"])
+def test_socks_options(command):
+    cfg = config(command, "--socks-host", "proxy.example", "--socks-port", "9050")
+    assert cfg.socks_host == "proxy.example"
+    assert cfg.socks_port == 9050
+    cfg = config(command, "--socks-host", "proxy.example")
+    assert cfg.socks_host == "proxy.example"
+    assert cfg.socks_port is None
+
+
+@pytest.mark.parametrize("command", ["send", "receive"])
+@pytest.mark.parametrize("port", ["0", "70000"])
+def test_socks_port_range(command, port):
+    result = CliRunner().invoke(cli.wormhole, [command, "--socks-port", port])
+    assert result.exit_code != 0
+    assert "--socks-port" in result.output
+
+
+@pytest.mark.parametrize("command", ["invite", "accept"])
+def test_ssh_socks_options(command):
+    args = ["ssh", command]
+    if command == "accept":
+        args += ["--yes", "1-code"]
+    with mock.patch("wormhole.cli.cmd_ssh.find_public_key",
+                    return_value=("ssh-ed25519", "test", "ssh-ed25519 key test")):
+        cfg = config(*args, "--socks-host", "proxy.example", "--socks-port", "1081")
+        assert cfg.socks_host == "proxy.example"
+        assert cfg.socks_port == 1081
+        cfg = config(*args)
+        assert cfg.socks_host is None
+        assert cfg.socks_port is None
+
+
 def test_send_transit_env_var():
     transit_url = str(mock.sentinel.transit_url)
     with mock.patch.dict(os.environ, WORMHOLE_TRANSIT_HELPER=transit_url):
@@ -97,6 +136,8 @@ def test_send_transit_env_var():
 
 def test_receive_baseline():
     cfg = config("receive")
+    assert cfg.socks_host is None
+    assert cfg.socks_port is None
     assert not cfg.accept_file
     assert cfg.code is None
     assert cfg.code_length == 2

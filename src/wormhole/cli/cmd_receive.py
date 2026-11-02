@@ -16,6 +16,7 @@ from .._status import WormholeStatus, AllegedSharedKey, ConfirmedKey
 from ..transit import TransitReceiver
 from ..util import (bytes_to_dict, bytes_to_hexstr, dict_to_bytes,
                     estimate_free_space)
+from .cli import _resolve_cli_proxy
 from .welcome import handle_welcome
 
 APPID = "lothar.com/wormhole/text-or-file-xfer"
@@ -55,6 +56,7 @@ class Receiver:
         self.args = args
         self._reactor = reactor
         self._tor = None
+        self._proxy = None
         self._transit_receiver = None
         self._old_status = WormholeStatus()
         self._KEY_TIMER = KEY_TIMER
@@ -67,6 +69,7 @@ class Receiver:
 
     @inlineCallbacks
     def go(self):
+        self._proxy = _resolve_cli_proxy(self._reactor, self.args)
         if self.args.tor:
             with self.args.timing.add("import", which="tor_manager"):
                 from ..tor_manager import get_tor
@@ -85,6 +88,7 @@ class Receiver:
             self.args.relay_url,
             self._reactor,
             tor=self._tor,
+            proxy=self._proxy,
             timing=self.args.timing,
             on_status_update=self._on_status,
         )
@@ -276,6 +280,7 @@ class Receiver:
             self.args.transit_helper,
             no_listen=(not self.args.listen),
             tor=self._tor,
+            proxy=self._proxy,
             reactor=self._reactor,
             timing=self.args.timing)
         self._transit_receiver = tr

@@ -14,7 +14,7 @@ from click import UsageError
 from click.testing import CliRunner
 from humanize import naturalsize
 from twisted.internet import endpoints, reactor
-from twisted.internet.defer import gatherResults, CancelledError, ensureDeferred
+from twisted.internet.defer import gatherResults, CancelledError, ensureDeferred, succeed
 from twisted.internet.error import ConnectionRefusedError
 from twisted.internet.utils import getProcessOutputAndValue
 from twisted.python import log, procutils
@@ -28,11 +28,11 @@ import pytest_twisted
 from hypothesis import given
 from hypothesis import strategies as st
 
-from .. import __version__
-from .._interfaces import ITorManager
-from ..cli import cli, cmd_receive, cmd_send, welcome
+from .. import __version__, xfer_util
+from .._interfaces import ISocksProxy, ITorManager
+from ..cli import cli, cmd_receive, cmd_send, cmd_ssh, welcome
 from ..errors import (ServerConnectionError, ServerError, TransferError,
-                      UnsendableFileError, WelcomeError, WrongPasswordError)
+                      UnsendableFileError, UnsupportedProxyError, WelcomeError, WrongPasswordError)
 from .common import config, setup_mailbox
 
 
@@ -51,6 +51,108 @@ def create_config():
     cfg.stdout = io.StringIO()
     cfg.stderr = io.StringIO()
     return cfg
+
+
+@pytest.mark.parametrize("command", ["send", "receive", "invite", "accept"])
+@pytest.mark.parametrize("options, environ, message", [
+    ({"socks_host": ""}, {}, "--socks-host must not be empty."),
+    ({"socks_host": "  "}, {}, "--socks-host must not be empty."),
+    *[({"socks_host": host}, {},
+       "--socks-host takes a bare hostname or IP address, without credentials, "
+       "a scheme, a path or brackets.")
+      for host in ["user@h", "socks5://h", "h/path", "[::1]", "h]", "a b", "h\t"]],
+    ({"socks_port": 1080}, {}, "--socks-port requires --socks-host."),
+    ({}, {"ALL_PROXY": "http://proxy.example:1080"},
+     "Unsupported proxy scheme 'http'; unset ALL_PROXY/all_proxy "
+     "or use --socks-host/--socks-port instead."),
+    ({}, {"ALL_PROXY": "socks5://user:password@proxy.example:1080"},
+     "Proxy credentials are not supported."),
+    *[(dict(tor_options, socks_host="proxy.example"), {},
+       "Tor options cannot be combined with a SOCKS proxy (--socks-host or ALL_PROXY). "
+       "Unset ALL_PROXY to use Tor.")
+      for tor_options in [{"tor": True}, {"launch_tor": True},
+                          {"tor_control_port": "tcp:localhost:9051"},
+                          {"tor_control_port": ""}]],
+    *[(tor_options, {"ALL_PROXY": "socks5://proxy.example:1080"},
+       "Tor options cannot be combined with a SOCKS proxy (--socks-host or ALL_PROXY). "
+       "Unset ALL_PROXY to use Tor.")
+      for tor_options in [{"tor": True}, {"launch_tor": True},
+                          {"tor_control_port": "tcp:localhost:9051"}]],
+])
+@pytest_twisted.ensureDeferred
+async def test_proxy_refused_before_connecting(command, options, environ, message):
+    cfg = config(command if command in ("send", "receive") else "send")
+    cfg.stderr = io.StringIO()
+    for name, value in options.items():
+        setattr(cfg, name, value)
+    run = {"send": cmd_send.send, "receive": cmd_receive.receive,
+           "invite": cmd_ssh.invite, "accept": cmd_ssh.accept}[command]
+    with (mock.patch.dict(os.environ, environ),
+          mock.patch("wormhole.tor_manager.get_tor") as get_tor,
+          mock.patch.object(xfer_util, "get_tor") as xfer_get_tor,
+          mock.patch.object(cmd_send, "create") as send_create,
+          mock.patch.object(cmd_receive, "create") as receive_create,
+          mock.patch.object(xfer_util.wormhole, "create") as xfer_create,
+          mock.patch.object(cli, "resolve_proxy", wraps=cli.resolve_proxy) as resolve):
+        with pytest.raises(UnsupportedProxyError) as exc:
+            await run(cfg)
+        assert str(exc.value) == message
+        get_tor.assert_not_called()
+        xfer_get_tor.assert_not_called()
+        send_create.assert_not_called()
+        receive_create.assert_not_called()
+        xfer_create.assert_not_called()
+        if "socks_host" in options and options["socks_host"] != "proxy.example":
+            resolve.assert_not_called()
+        else:
+            resolve.assert_called_once_with(
+                reactor, cfg.socks_host, cfg.socks_port, os.environ, cfg.stderr)
+
+
+@pytest.mark.parametrize("command", ["send", "receive"])
+@pytest.mark.parametrize("host, port", [("explicit.example", 1081), ("::1", None)])
+@pytest_twisted.ensureDeferred
+async def test_proxy_explicit_overrides_environment(command, host, port):
+    cfg = config(command)
+    cfg.socks_host = host
+    cfg.socks_port = port
+    cfg.stderr = io.StringIO()
+    cls = cmd_send.Sender if command == "send" else cmd_receive.Receiver
+    module = cmd_send if command == "send" else cmd_receive
+    instance = cls(cfg, reactor)
+    wh = mock.Mock()
+    wh.close.return_value = succeed(None)
+    with (mock.patch.dict(os.environ, ALL_PROXY="http://invalid.example", NO_PROXY="*"),
+          mock.patch.object(module, "create", return_value=wh) as create,
+          mock.patch.object(instance, "_go", return_value=succeed(None)),
+          mock.patch.object(cli, "resolve_proxy", wraps=cli.resolve_proxy) as resolve):
+        await instance.go()
+        resolve.assert_called_once_with(reactor, host, port, os.environ, cfg.stderr)
+        assert instance._proxy.host == host
+        assert instance._proxy.port == (1080 if port is None else port)
+        assert create.call_args.kwargs["proxy"] is instance._proxy
+        assert create.call_args.kwargs["tor"] is None
+    assert cfg.stderr.getvalue() == (
+        "Warning: NO_PROXY is ignored; every connection goes through the proxy.\n")
+
+
+@pytest.mark.parametrize("command", ["invite", "accept"])
+@pytest_twisted.ensureDeferred
+async def test_proxy_ssh_forwarded(command, tmp_path):
+    cfg = create_config()
+    cfg.public_key = ("ssh-ed25519", "test", "ssh-ed25519 key test")
+    cfg.code = "1-code"
+    cfg.ssh_user = None
+    run = cmd_ssh.invite if command == "invite" else cmd_ssh.accept
+    transfer = "receive" if command == "invite" else "send"
+    with (mock.patch.object(cli, "resolve_proxy", return_value=mock.sentinel.proxy) as resolve,
+          mock.patch.object(cmd_ssh, "expanduser", return_value=str(tmp_path)),
+          mock.patch.object(xfer_util, transfer,
+                            return_value=succeed(cfg.public_key[2])) as xfer):
+        await run(cfg)
+        resolve.assert_called_once_with(reactor, None, None, os.environ, cfg.stderr)
+        xfer.assert_called_once()
+        assert xfer.call_args.kwargs["proxy"] is mock.sentinel.proxy
 
 
 def test_text_offer():
@@ -406,6 +508,16 @@ class FakeTor:
         return endpoints.HostnameEndpoint(reactor, host, port)
 
 
+@implementer(ISocksProxy)
+class FakeProxy:
+    def __init__(self):
+        self.endpoints = []
+
+    def stream_via(self, host, port, tls=False):
+        self.endpoints.append((host, port, tls))
+        return endpoints.HostnameEndpoint(reactor, host, port)
+
+
 def strip_deprecations(stderr, NL):
     lines = [line
              for line in stderr.split(NL)
@@ -437,10 +549,11 @@ async def _do_test(
         fake_tor=False,
         overwrite=False,
         mock_accept=False,
-        verify=False):
+        verify=False,
+        fake_proxy=False):
     assert mode in ("text", "file", "empty-file", "directory", "slow-text",
                     "slow-sender-text")
-    if fake_tor:
+    if fake_tor or fake_proxy:
         assert not as_subprocess
     send_cfg = config("send")
     recv_cfg = config("receive")
@@ -449,7 +562,7 @@ async def _do_test(
     for cfg in [send_cfg, recv_cfg]:
         cfg.hide_progress = True
         cfg.relay_url = mailbox.url
-        cfg.transit_helper = ""
+        cfg.transit_helper = transiturl if fake_proxy else ""
         cfg.listen = True
         cfg.code = "1-abc"
         cfg.stdout = io.StringIO()
@@ -758,6 +871,17 @@ async def test_text_tor(wormhole_executable, scripts_env, mailbox, transit_relay
     await _do_test(wormhole_executable, scripts_env, mailbox, transit_relay, tmpdir_factory, fake_tor=True)
 
 
+async def test_text_proxy(wormhole_executable, scripts_env, mailbox, transit_relay, tmpdir_factory):
+    proxies = [FakeProxy(), FakeProxy()]
+    with mock.patch.object(cli, "resolve_proxy", side_effect=proxies) as resolve:
+        await _do_test(wormhole_executable, scripts_env, mailbox, transit_relay,
+                       tmpdir_factory, fake_proxy=True)
+    assert resolve.call_count == 2
+    expected = [("127.0.0.1", mailbox.port._realPortNumber, False)]
+    for proxy in proxies:
+        assert proxy.endpoints == expected
+
+
 async def test_text_verify(wormhole_executable, scripts_env, mailbox, transit_relay, tmpdir_factory):
     await _do_test(wormhole_executable, scripts_env, mailbox, transit_relay, tmpdir_factory, verify=True)
 
@@ -780,6 +904,38 @@ async def test_file_overwrite_mock_accept(wormhole_executable, scripts_env, mail
 
 async def test_file_tor(wormhole_executable, scripts_env, mailbox, transit_relay, tmpdir_factory):
     await _do_test(wormhole_executable, scripts_env, mailbox, transit_relay, tmpdir_factory, mode="file", fake_tor=True)
+
+
+async def test_file_proxy(wormhole_executable, scripts_env, mailbox, transit_relay, tmpdir_factory):
+    proxies = [FakeProxy(), FakeProxy()]
+    sent_hints = []
+    send_data = cmd_send.Sender._send_data
+    receive_data = cmd_receive.Receiver._send_data
+
+    def record_send(sender, data, wh):
+        if "transit" in data:
+            sent_hints.append(data["transit"]["hints-v1"])
+        return send_data(sender, data, wh)
+
+    def record_receive(receiver, data, wh):
+        if "transit" in data:
+            sent_hints.append(data["transit"]["hints-v1"])
+        return receive_data(receiver, data, wh)
+
+    with (mock.patch.object(cli, "resolve_proxy", side_effect=proxies) as resolve,
+          mock.patch.object(cmd_send.Sender, "_send_data", record_send),
+          mock.patch.object(cmd_receive.Receiver, "_send_data", record_receive)):
+        await _do_test(wormhole_executable, scripts_env, mailbox, transit_relay,
+                       tmpdir_factory, mode="file", fake_proxy=True)
+    assert resolve.call_count == 2
+    expected = [("127.0.0.1", mailbox.port._realPortNumber, False),
+                ("127.0.0.1", int(transit_relay.split(":")[2]), False)]
+    for proxy in proxies:
+        assert proxy.endpoints == expected
+    assert len(sent_hints) == 2
+    for hints in sent_hints:
+        assert hints
+        assert all(hint["type"] == "relay-v1" for hint in hints)
 
 
 async def test_empty_file(wormhole_executable, scripts_env, mailbox, transit_relay, tmpdir_factory):
@@ -1493,6 +1649,20 @@ async def test_debug_state_receive(mailbox):
     # get logged due to the --debug-state option
     assert "recv.B[S0_empty].close" in \
         args.stdout.getvalue()
+
+
+@pytest_twisted.ensureDeferred
+async def test_proxy_dispatch_error():
+    cfg = create_config()
+    message = "--socks-host must not be empty."
+
+    def fake():
+        raise UnsupportedProxyError(message)
+
+    with pytest.raises(SystemExit) as exc:
+        await cli._dispatch_command(reactor, cfg, fake)
+    assert exc.value.code == 1
+    assert cfg.stderr.getvalue() == "ERROR: " + message + "\n"
 
 
 @pytest_twisted.ensureDeferred

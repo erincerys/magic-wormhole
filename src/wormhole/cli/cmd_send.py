@@ -18,6 +18,7 @@ from ..errors import TransferError, UnsendableFileError
 from .._status import WormholeStatus, ConsumedCode, AllegedSharedKey, ConfirmedKey
 from ..transit import TransitSender
 from ..util import bytes_to_dict, bytes_to_hexstr, dict_to_bytes
+from .cli import _resolve_cli_proxy
 from .welcome import handle_welcome
 
 from iterableio import open_iterable
@@ -44,6 +45,7 @@ class Sender:
         self._args = args
         self._reactor = reactor
         self._tor = None
+        self._proxy = None
         self._timing = args.timing
         self._fd_to_send = None
         self._transit_sender = None
@@ -54,6 +56,7 @@ class Sender:
     @inlineCallbacks
     def go(self):
         assert isinstance(self._args.relay_url, str)
+        self._proxy = _resolve_cli_proxy(self._reactor, self._args)
         if self._args.tor:
             with self._timing.add("import", which="tor_manager"):
                 from ..tor_manager import get_tor
@@ -72,6 +75,7 @@ class Sender:
             self._args.relay_url,
             self._reactor,
             tor=self._tor,
+            proxy=self._proxy,
             timing=self._timing,
             on_status_update=self._on_status,
         )
@@ -223,6 +227,7 @@ class Sender:
                 args.transit_helper,
                 no_listen=(not args.listen),
                 tor=self._tor,
+                proxy=self._proxy,
                 reactor=self._reactor,
                 timing=self._timing)
             self._transit_sender = ts

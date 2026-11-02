@@ -3,7 +3,17 @@ import json
 from twisted.internet.defer import inlineCallbacks
 
 from . import wormhole
+from .errors import UnsupportedProxyError
 from .tor_manager import get_tor
+
+
+def _check_tor_proxy(proxy, use_tor, launch_tor, tor_control_port,
+                     socks_host=None, socks_port=None):
+    if (proxy is not None or socks_host is not None or socks_port is not None) and (
+            use_tor or launch_tor or tor_control_port is not None):
+        raise UnsupportedProxyError(
+            "Tor options cannot be combined with a SOCKS proxy (--socks-host or ALL_PROXY). "
+            "Unset ALL_PROXY to use Tor.")
 
 
 @inlineCallbacks
@@ -15,7 +25,8 @@ def receive(reactor,
             use_tor=False,
             launch_tor=False,
             tor_control_port=None,
-            on_code=None):
+            on_code=None,
+            proxy=None):
     """
     This is a convenience API which returns a Deferred that callbacks
     with a single chunk of data from another wormhole (and then closes
@@ -39,6 +50,7 @@ def receive(reactor,
                     you passed in one explicitly)
     :type on_code: single-argument callable
     """
+    _check_tor_proxy(proxy, use_tor, launch_tor, tor_control_port)
     tor = None
     if use_tor:
         tor = yield get_tor(reactor, launch_tor, tor_control_port)
@@ -47,7 +59,7 @@ def receive(reactor,
         # can lazy-provide an endpoint, and overlap the startup process
         # with the user handing off the wormhole code
 
-    wh = wormhole.create(appid, relay_url, reactor, tor=tor)
+    wh = wormhole.create(appid, relay_url, reactor, tor=tor, proxy=proxy)
     if code is None:
         wh.allocate_code(code_length)
         code = yield wh.get_code()
@@ -88,7 +100,8 @@ def send(reactor,
          use_tor=False,
          launch_tor=False,
          tor_control_port=None,
-         on_code=None):
+         on_code=None,
+         proxy=None):
     """
     This is a convenience API which returns a Deferred that callbacks
     after a single chunk of data has been sent to another
@@ -110,6 +123,7 @@ def send(reactor,
 
     :type on_code: single-argument callable
     """
+    _check_tor_proxy(proxy, use_tor, launch_tor, tor_control_port)
     tor = None
     if use_tor:
         tor = yield get_tor(reactor, launch_tor, tor_control_port)
@@ -117,7 +131,7 @@ def send(reactor,
         # tor in parallel with everything else, make sure the Tor object
         # can lazy-provide an endpoint, and overlap the startup process
         # with the user handing off the wormhole code
-    wh = wormhole.create(appid, relay_url, reactor, tor=tor)
+    wh = wormhole.create(appid, relay_url, reactor, tor=tor, proxy=proxy)
     if code is None:
         wh.allocate_code()
         code = yield wh.get_code()

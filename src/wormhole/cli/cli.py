@@ -14,9 +14,11 @@ from . import public_relay  # noqa: E402
 from .. import __version__  # noqa: E402
 from ..errors import (KeyFormatError, NoTorError,  # noqa: E402
                       ServerConnectionError, ServerError,
-                      TransferError, UnsendableFileError, WelcomeError,
+                      TransferError, UnsendableFileError, UnsupportedProxyError, WelcomeError,
                       WrongPasswordError)
+from ..socks_proxy import resolve_proxy  # noqa: E402
 from ..timing import DebugTiming  # noqa: E402
+from ..xfer_util import _check_tor_proxy  # noqa: E402
 
 top_import_finish = time.time()
 
@@ -176,6 +178,9 @@ def _dispatch_command(reactor, cfg, command):
             msg = f"ERROR: server error: {code}"
         print(msg, file=cfg.stderr)
         raise SystemExit(1)
+    except UnsupportedProxyError as e:
+        print("ERROR: " + str(e), file=cfg.stderr)
+        raise SystemExit(1)
     except Exception as e:
         # this prints a proper traceback, whereas
         # traceback.print_exc() just prints a TB to the "yield"
@@ -246,6 +251,38 @@ TorArgs = _compose(
 )
 
 
+ProxyArgs = _compose(
+    click.option(
+        "--socks-host",
+        default=None,
+        metavar="HOST",
+        help="SOCKS5 proxy host for every connection (hostname or IP address, no credentials). Overrides ALL_PROXY.",
+    ),
+    click.option(
+        "--socks-port",
+        default=None,
+        type=click.IntRange(1, 65535),
+        metavar="PORT",
+        help="SOCKS5 proxy port. Requires --socks-host. Overrides ALL_PROXY; the default port is 1080.",
+    ),
+)
+
+
+def _resolve_cli_proxy(reactor, cfg):
+    host = cfg.socks_host
+    if host is not None:
+        if not host.strip():
+            raise UnsupportedProxyError("--socks-host must not be empty.")
+        if any(c in "@/[]" or c.isspace() for c in host):
+            raise UnsupportedProxyError(
+                "--socks-host takes a bare hostname or IP address, without credentials, "
+                "a scheme, a path or brackets.")
+    proxy = resolve_proxy(reactor, cfg.socks_host, cfg.socks_port, os.environ, cfg.stderr)
+    _check_tor_proxy(proxy, cfg.tor, cfg.launch_tor, cfg.tor_control_port,
+                     cfg.socks_host, cfg.socks_port)
+    return proxy
+
+
 @wormhole.command()
 @click.pass_context
 def help(context, **kwargs):
@@ -256,6 +293,7 @@ def help(context, **kwargs):
 @wormhole.command()
 @CommonArgs
 @TorArgs
+@ProxyArgs
 @click.option(
     "--code",
     metavar="CODE",
@@ -318,6 +356,7 @@ def go(f, cfg):
 @wormhole.command()
 @CommonArgs
 @TorArgs
+@ProxyArgs
 @click.option(
     "--only-text",
     "-t",
@@ -420,6 +459,7 @@ def ssh():
     help="Add to USER's ~/.ssh/authorized_keys",
 )
 @TorArgs
+@ProxyArgs
 @click.pass_context
 def ssh_invite(ctx, code_length, user, **kwargs):
     """
@@ -452,6 +492,7 @@ def ssh_invite(ctx, code_length, user, **kwargs):
     help="Skip confirmation prompt to send key",
 )
 @TorArgs
+@ProxyArgs
 @click.pass_obj
 def ssh_accept(cfg, code, key_file, yes, **kwargs):
     """

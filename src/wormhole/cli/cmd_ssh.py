@@ -6,6 +6,7 @@ from twisted.internet import reactor
 from twisted.internet.defer import inlineCallbacks
 
 from .. import xfer_util
+from .cli import _resolve_cli_proxy
 
 
 class PubkeyError(Exception):
@@ -63,6 +64,7 @@ def find_public_key(hint=None):
 
 @inlineCallbacks
 def accept(cfg, reactor=reactor):
+    proxy = _resolve_cli_proxy(reactor, cfg)
     yield xfer_util.send(
         reactor,
         cfg.appid or "lothar.com/wormhole/ssh-add",
@@ -72,12 +74,14 @@ def accept(cfg, reactor=reactor):
         use_tor=cfg.tor,
         launch_tor=cfg.launch_tor,
         tor_control_port=cfg.tor_control_port,
+        proxy=proxy,
     )
     print("Key sent.")
 
 
 @inlineCallbacks
 def invite(cfg, reactor=reactor):
+    proxy = _resolve_cli_proxy(reactor, cfg)
     def on_code_created(code):
         print("Now tell the other user to run:")
         print()
@@ -115,6 +119,7 @@ def invite(cfg, reactor=reactor):
         launch_tor=cfg.launch_tor,
         tor_control_port=cfg.tor_control_port,
         on_code=on_code_created,
+        proxy=proxy,
     )
 
     parts = pubkey.split()
