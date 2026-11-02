@@ -2,17 +2,19 @@ import json
 
 from nacl.secret import SecretBox
 from spake2 import SPAKE2_Symmetric
+from twisted.internet.defer import Deferred
+from twisted.internet.task import Clock
 from zope.interface import directlyProvides, implementer
 
 from unittest import mock
 
 from .. import (__version__, _allocator, _boss, _code, _input, _key, _lister,
                 _mailbox, _nameplate, _order, _receive, _rendezvous, _send,
-                _terminator, errors, timing)
+                _terminator, errors, timing, wormhole)
 from .._interfaces import (IAllocator, IBoss, ICode, IDilator, IInput, IKey,
                            ILister, IMailbox, INameplate, IOrder, IReceive,
                            IRendezvousConnector, ISend, ITerminator, IWordlist,
-                           ITorManager)
+                           ISocksProxy, ITorManager)
 from .._key import derive_key, derive_phase_key, encrypt_data
 from ..journal import ImmediateJournal
 from .._status import WormholeStatus
@@ -1726,6 +1728,87 @@ def test_endpoints():
     ep = rc._make_endpoint("wss://host/v1")
     assert tor_manager.mock_calls == \
                      [mock.call.stream_via("host", 443, tls=True)]
+
+    for proxy_truth in (True, False):
+        proxy = mock.MagicMock()
+        proxy.__bool__.return_value = proxy_truth
+        directlyProvides(proxy, ISocksProxy)
+        with mock.patch("wormhole._rendezvous.endpoints.HostnameEndpoint") as he, \
+                mock.patch("wormhole._rendezvous.endpoints.clientFromString") as cfs:
+            rc = _rendezvous.RendezvousConnector(
+                "ws://host:4000/v1", "appid", "side", reactor, journal,
+                None, timing.DebugTiming(), client_version, lambda **kw: None,
+                proxy=proxy)
+            for url, port, tls in (
+                    ("ws://host:4000/v1", 4000, False),
+                    ("ws://host/v1", 80, False),
+                    ("wss://host:4000/v1", 4000, True),
+                    ("wss://host/v1", 443, True)):
+                proxy.stream_via.reset_mock()
+                ep = rc._make_endpoint(url)
+                proxy.stream_via.assert_called_once_with("host", port, tls=tls)
+                assert ep is proxy.stream_via.return_value
+            proxy.stream_via.side_effect = RuntimeError("proxy unavailable")
+            with pytest.raises(RuntimeError, match="proxy unavailable"):
+                rc._make_endpoint("wss://host/v1")
+            he.assert_not_called()
+            cfs.assert_not_called()
+
+
+@pytest.mark.parametrize("proxy_truth", [True, False])
+@pytest.mark.parametrize("options, message", [
+    ({"tor": object()}, "Tor and a SOCKS proxy cannot be combined."),
+    ({"tor": False}, "Tor and a SOCKS proxy cannot be combined."),
+    ({"dilation": True}, "Dilation does not support a SOCKS proxy."),
+    ({"dilation": ["enabled"]}, "Dilation does not support a SOCKS proxy."),
+])
+def test_create_refuses_proxy_combinations(proxy_truth, options, message):
+    proxy = mock.MagicMock()
+    proxy.__bool__.return_value = proxy_truth
+    directlyProvides(proxy, ISocksProxy)
+    with mock.patch("wormhole.wormhole.Boss") as boss:
+        with pytest.raises(errors.UnsupportedProxyError) as exc:
+            wormhole.create("appid", "ws://host/v1", object(), proxy=proxy,
+                            **options)
+        assert str(exc.value) == message
+        boss.assert_not_called()
+    proxy.stream_via.assert_not_called()
+
+
+@pytest.mark.parametrize("proxy_truth", [True, False])
+@pytest.mark.parametrize("url, port, tls", [
+    ("ws://host:4000/v1", 4000, False),
+    ("ws://host/v1", 80, False),
+    ("wss://host:4000/v1", 4000, True),
+    ("wss://host/v1", 443, True),
+])
+def test_create_proxy_reaches_connector(proxy_truth, url, port, tls):
+    reactor = Clock()
+    pending = Deferred()
+    endpoint = mock.Mock()
+    endpoint.connect.return_value = pending
+    connect = endpoint.connect
+    proxy = mock.MagicMock()
+    proxy.__bool__.return_value = proxy_truth
+    proxy.stream_via.return_value = endpoint
+    directlyProvides(proxy, ISocksProxy)
+    with mock.patch("wormhole._rendezvous.endpoints.HostnameEndpoint") as he, \
+            mock.patch("wormhole._rendezvous.endpoints.clientFromString") as cfs:
+        w = wormhole.create("appid", url, reactor, proxy=proxy)
+        try:
+            proxy.stream_via.assert_called_once_with("host", port, tls=tls)
+            connect.assert_called_once()
+            he.assert_not_called()
+            cfs.assert_not_called()
+        finally:
+            closed = []
+            d = w.close()
+            d.addErrback(lambda f: f.trap(errors.LonelyError))
+            d.addCallback(closed.append)
+            reactor.advance(0)
+        assert closed == [errors.LonelyError]
+        assert pending.called
+        assert reactor.getDelayedCalls() == []
 
 
 # TODO

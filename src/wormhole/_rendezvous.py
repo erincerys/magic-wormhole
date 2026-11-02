@@ -71,6 +71,7 @@ class RendezvousConnector:
     _timing = attrib(validator=provides(_interfaces.ITiming))
     _client_version = attrib(validator=instance_of(tuple))
     _evolve_status = attrib()  # callable taking kwargs to change aspects of the status
+    _proxy = attrib(default=None, validator=optional(provides(_interfaces.ISocksProxy)))
 
     def __attrs_post_init__(self):
         self._have_made_a_successful_connection = False
@@ -119,6 +120,8 @@ class RendezvousConnector:
         p = urlparse(url)
         tls = (p.scheme == "wss")
         port = p.port or (443 if tls else 80)
+        if self._proxy is not None:
+            return self._proxy.stream_via(p.hostname, port, tls=tls)
         if self._tor:
             return self._tor.stream_via(p.hostname, port, tls=tls)
         if tls:

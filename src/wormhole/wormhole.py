@@ -11,7 +11,7 @@ from ._dilation.manager import DILATION_VERSIONS
 from ._dilation.connector import Connector
 from ._interfaces import IDeferredWormhole, IWormhole
 from ._key import derive_key
-from .errors import NoKeyError, WormholeClosed
+from .errors import NoKeyError, UnsupportedProxyError, WormholeClosed
 from .eventual import EventualQueue
 from .journal import ImmediateJournal
 from .observer import OneShotObserver, SequenceObserver
@@ -268,7 +268,13 @@ def create(
         stderr=sys.stderr,
         dilation=None,
         _eventual_queue=None,
-        on_status_update=None):
+        on_status_update=None,
+        proxy=None):
+    if proxy is not None:
+        if tor is not None:
+            raise UnsupportedProxyError("Tor and a SOCKS proxy cannot be combined.")
+        if dilation:
+            raise UnsupportedProxyError("Dilation does not support a SOCKS proxy.")
     timing = timing or DebugTiming()
     side = bytes_to_hexstr(os.urandom(5))
     journal = journal or ImmediateJournal()
@@ -295,7 +301,8 @@ def create(
         v = v.decode("utf-8", errors="replace")
     client_version = ("python", v)
     b = Boss(w, side, relay_url, appid, wormhole_versions, client_version,
-             reactor, eq, cooperator, journal, tor, timing, on_status_update)
+             reactor, eq, cooperator, journal, tor, timing, on_status_update,
+             proxy=proxy)
     w._set_boss(b)
     b.start()
     return w
